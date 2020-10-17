@@ -3580,9 +3580,11 @@ static void mg_null_if_connect_udp(struct mg_connection *c) {
   c->flags |= MG_F_CLOSE_IMMEDIATELY;
 }
 
+#ifdef __LINUX_SOCKETCAN__
 static void mg_null_if_connect_can(struct mg_connection *c) {
   c->flags |= MG_F_CLOSE_IMMEDIATELY;
 }
+#endif
 
 static int mg_null_if_listen_tcp(struct mg_connection *c,
                                  union socket_address *sa) {
