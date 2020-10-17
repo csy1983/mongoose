@@ -417,6 +417,12 @@ unsigned int sleep(unsigned int seconds);
 #include <sys/types.h>
 #include <unistd.h>
 
+#ifdef __LINUX_SOCKETCAN__
+#include <net/if.h>
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#endif
+
 #ifdef __APPLE__
 #include <machine/endian.h>
 #ifndef BYTE_ORDER
@@ -3331,19 +3337,35 @@ struct mg_iface_vtable {
   int (*listen_tcp)(struct mg_connection *nc, union socket_address *sa);
   /* Request that a "listening" UDP socket be created. */
   int (*listen_udp)(struct mg_connection *nc, union socket_address *sa);
+#ifdef __LINUX_SOCKETCAN__
+  /* Request that a "listening" CAN socket be created. */
+  int (*listen_can)(struct mg_connection *nc, union socket_address *sa);
+#endif
 
   /* Request that a TCP connection is made to the specified address. */
   void (*connect_tcp)(struct mg_connection *nc, const union socket_address *sa);
   /* Open a UDP socket. Doesn't actually connect anything. */
   void (*connect_udp)(struct mg_connection *nc);
+#ifdef __LINUX_SOCKETCAN__
+  /* Open a CAN socket. Doesn't actually connect anything. */
+  void (*connect_can)(struct mg_connection *nc);
+#endif
 
   /* Send functions for TCP and UDP. Sent data is copied before return. */
   int (*tcp_send)(struct mg_connection *nc, const void *buf, size_t len);
   int (*udp_send)(struct mg_connection *nc, const void *buf, size_t len);
+#ifdef __LINUX_SOCKETCAN__
+  int (*can_send)(struct mg_connection *nc, const void *buf, size_t len,
+                  int can_id);
+#endif
 
   int (*tcp_recv)(struct mg_connection *nc, void *buf, size_t len);
   int (*udp_recv)(struct mg_connection *nc, void *buf, size_t len,
                   union socket_address *sa, size_t *sa_len);
+#ifdef __LINUX_SOCKETCAN__
+  int (*can_recv)(struct mg_connection *nc, void *buf, size_t len,
+                  struct can_filter rfilter);
+#endif
 
   /* Perform interface-related connection initialization. Return 1 on ok. */
   int (*create_conn)(struct mg_connection *nc);
@@ -3510,6 +3532,9 @@ union socket_address {
 #else
   struct sockaddr sin6;
 #endif
+#ifdef __LINUX_SOCKETCAN__
+  struct sockaddr_can scan;
+#endif
 };
 
 struct mg_connection;
@@ -3609,6 +3634,10 @@ struct mg_connection {
 #define MG_F_USER_4 (1 << 23)
 #define MG_F_USER_5 (1 << 24)
 #define MG_F_USER_6 (1 << 25)
+
+#ifdef __LINUX_SOCKETCAN__
+#define MG_F_CANBUS MG_F_USER_1
+#endif
 
 #if MG_ENABLE_SSL
   void *ssl_if_data; /* SSL library data. */
