@@ -53,6 +53,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#ifdef __LINUX_SOCKETCAN__
+#include <net/if.h>
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#endif
+
 #ifdef __APPLE__
 #include <machine/endian.h>
 #ifndef BYTE_ORDER

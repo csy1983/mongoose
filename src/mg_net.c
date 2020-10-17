@@ -427,6 +427,9 @@ MG_INTERNAL int mg_parse_address(const char *str, union socket_address *sa,
 #if MG_ENABLE_IPV6
   char buf[100];
 #endif
+#ifdef __LINUX_SOCKETCAN__
+  struct ifreq ifr;
+#endif
 
   /*
    * MacOS needs that. If we do not zero it, subsequent bind() will fail.
@@ -444,6 +447,12 @@ MG_INTERNAL int mg_parse_address(const char *str, union socket_address *sa,
   } else if (strncmp(str, "tcp://", 6) == 0) {
     str += 6;
   }
+#ifdef __LINUX_SOCKETCAN__
+  else if (strncmp(str, "can://", 6) == 0) {
+    str += 6;
+    *proto = SOCK_RAW;
+  }
+#endif
 
   if (sscanf(str, "%u.%u.%u.%u:%u%n", &a, &b, &c, &d, &port, &len) == 5) {
     /* Bind to a specific IPv4 address, e.g. 192.168.1.5:8080 */
@@ -485,6 +494,17 @@ MG_INTERNAL int mg_parse_address(const char *str, union socket_address *sa,
              sscanf(str, "%u%n", &port, &len) == 1) {
     /* If only port is specified, bind to IPv4, INADDR_ANY */
     sa->sin.sin_port = htons((uint16_t) port);
+#ifdef __LINUX_SOCKETCAN__
+  } else if (strstr(str, "can") != NULL) {
+    /* SocketCAN interface, e.g. can1 */
+    strncpy(ifr.ifr_name, str, IFNAMSIZ);
+    ifr.ifr_ifindex = if_nametoindex(ifr.ifr_name);
+		if (!ifr.ifr_ifindex)
+			return -1;
+    sa->scan.can_family = AF_CAN;
+    sa->scan.can_ifindex = ifr.ifr_ifindex;
+    return strlen(str);
+#endif
   } else {
     return -1;
   }
@@ -572,6 +592,9 @@ void mg_send(struct mg_connection *nc, const void *buf, int len) {
 
 static int mg_recv_tcp(struct mg_connection *nc, char *buf, size_t len);
 static int mg_recv_udp(struct mg_connection *nc, char *buf, size_t len);
+#ifdef __LINUX_SOCKETCAN__
+static int mg_recv_can(struct mg_connection *nc, char *buf, size_t len);
+#endif
 
 static int mg_do_recv(struct mg_connection *nc) {
   int res = 0;
@@ -594,6 +617,10 @@ static int mg_do_recv(struct mg_connection *nc) {
     len = nc->recv_mbuf.size - nc->recv_mbuf.len;
     if (nc->flags & MG_F_UDP) {
       res = mg_recv_udp(nc, buf, len);
+#ifdef __LINUX_SOCKETCAN__
+    } else if (nc->flags & MG_F_CANBUS) {
+      res = mg_recv_can(nc, buf, len);
+#endif
     } else {
       res = mg_recv_tcp(nc, buf, len);
     }
@@ -724,6 +751,24 @@ out:
   return n;
 }
 
+#ifdef __LINUX_SOCKETCAN__
+static int mg_recv_can(struct mg_connection *nc, char *buf, size_t len) {
+  int n = nc->iface->vtable->can_recv(nc, buf, len);
+  DBG(("%p <- %d bytes", nc, n));
+
+  if (n > 0) {
+    nc->recv_mbuf.len += n;
+    nc->last_io_time = (time_t) mg_time();
+    mbuf_trim(&nc->recv_mbuf);
+    mg_call(nc, NULL, nc->user_data, MG_EV_RECV, &n);
+  } else if (n < 0) {
+    nc->flags |= MG_F_CLOSE_IMMEDIATELY;
+  }
+  mbuf_trim(&nc->recv_mbuf);
+  return n;
+}
+#endif
+
 void mg_if_can_send_cb(struct mg_connection *nc) {
   int n = 0;
   const char *buf = nc->send_mbuf.buf;
@@ -761,6 +806,10 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
       if (len > 0) {
     if (nc->flags & MG_F_UDP) {
       n = nc->iface->vtable->udp_send(nc, buf, len);
+#ifdef __LINUX_SOCKETCAN__
+    } else if (nc->flags & MG_F_CANBUS) {
+      n = nc->iface->vtable->can_send(nc, buf, len, (int)nc->user_data);
+#endif
     } else {
       n = nc->iface->vtable->tcp_send(nc, buf, len);
     }
@@ -1030,6 +1079,9 @@ struct mg_connection *mg_bind_opt(struct mg_mgr *mgr, const char *address,
   nc->sa = sa;
   nc->flags |= MG_F_LISTENING;
   if (proto == SOCK_DGRAM) nc->flags |= MG_F_UDP;
+#ifdef __LINUX_SOCKETCAN__
+  else if (proto == SOCK_RAW) nc->flags |= MG_F_CANBUS;
+#endif
 
 #if MG_ENABLE_SSL
   DBG(("%p %s %s,%s,%s", nc, address, (opts.ssl_cert ? opts.ssl_cert : "-"),
@@ -1060,6 +1112,10 @@ struct mg_connection *mg_bind_opt(struct mg_mgr *mgr, const char *address,
 
   if (nc->flags & MG_F_UDP) {
     rc = nc->iface->vtable->listen_udp(nc, &nc->sa);
+#ifdef __LINUX_SOCKETCAN__
+  } else if (nc->flags & MG_F_CANBUS) {
+    rc = nc->iface->vtable->listen_can(nc, &nc->sa);
+#endif
   } else {
     rc = nc->iface->vtable->listen_tcp(nc, &nc->sa);
   }

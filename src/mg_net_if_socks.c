@@ -106,6 +106,12 @@ static void mg_socks_if_connect_udp(struct mg_connection *c) {
   (void) c;
 }
 
+#ifdef __LINUX_SOCKETCAN__
+static void mg_socks_if_connect_can(struct mg_connection *c) {
+  (void) c;
+}
+#endif
+
 static int mg_socks_if_listen_tcp(struct mg_connection *c,
                                   union socket_address *sa) {
   (void) c;
@@ -119,6 +125,15 @@ static int mg_socks_if_listen_udp(struct mg_connection *c,
   (void) sa;
   return -1;
 }
+
+#ifdef __LINUX_SOCKETCAN__
+static int mg_socks_if_listen_can(struct mg_connection *c,
+                                  union socket_address *sa) {
+  (void) c;
+  (void) sa;
+  return 0;
+}
+#endif
 
 static int mg_socks_if_tcp_send(struct mg_connection *c, const void *buf,
                                 size_t len) {
@@ -137,6 +152,17 @@ static int mg_socks_if_udp_send(struct mg_connection *c, const void *buf,
   (void) len;
   return -1;
 }
+
+#ifdef __LINUX_SOCKETCAN__
+static int mg_socks_if_can_send(struct mg_connection *c, const void *buf,
+                                size_t len, int can_id) {
+  (void) c;
+  (void) buf;
+  (void) len;
+  (void) can_id;
+  return -1;
+}
+#endif
 
 int mg_socks_if_tcp_recv(struct mg_connection *c, void *buf, size_t len) {
   struct socksdata *d = (struct socksdata *) c->iface->data;
@@ -159,6 +185,19 @@ int mg_socks_if_udp_recv(struct mg_connection *c, void *buf, size_t len,
   (void) sa_len;
   return -1;
 }
+
+#ifdef __LINUX_SOCKETCAN__
+int mg_socks_if_can_recv(struct mg_connection *c, void *buf, size_t len,
+                         struct can_filter *rfilter) {
+  (void) c;
+  (void) buf;
+  (void) len;
+  (void) sa;
+  (void) sa_len;
+  (void) rfilter;
+  return -1;
+}
+#endif
 
 static int mg_socks_if_create_conn(struct mg_connection *c) {
   (void) c;
@@ -215,6 +254,21 @@ static void mg_socks_if_get_conn_addr(struct mg_connection *c, int remote,
   (void) sa;
 }
 
+#ifdef __LINUX_SOCKETCAN__
+const struct mg_iface_vtable mg_socks_iface_vtable = {
+    mg_socks_if_init,          mg_socks_if_free,
+    mg_socks_if_add_conn,      mg_socks_if_remove_conn,
+    mg_socks_if_poll,          mg_socks_if_listen_tcp,
+    mg_socks_if_listen_udp,    mg_socks_if_listen_can,
+    mg_socks_if_connect_tcp,   mg_socks_if_connect_udp,
+    mg_socks_if_connect_can,   mg_socks_if_tcp_send,
+    mg_socks_if_udp_send,      mg_socks_if_can_send,
+    mg_socks_if_tcp_recv,      mg_socks_if_udp_recv
+    mg_socks_if_can_recv,      mg_socks_if_create_conn,
+    mg_socks_if_destroy_conn,  mg_socks_if_sock_set,
+    mg_socks_if_get_conn_addr,
+};
+#else
 const struct mg_iface_vtable mg_socks_iface_vtable = {
     mg_socks_if_init,          mg_socks_if_free,
     mg_socks_if_add_conn,      mg_socks_if_remove_conn,
@@ -226,6 +280,7 @@ const struct mg_iface_vtable mg_socks_iface_vtable = {
     mg_socks_if_destroy_conn,  mg_socks_if_sock_set,
     mg_socks_if_get_conn_addr,
 };
+#endif
 
 struct mg_iface *mg_socks_mk_iface(struct mg_mgr *mgr, const char *proxy_addr) {
   struct mg_iface *iface = mg_if_create_iface(&mg_socks_iface_vtable, mgr);

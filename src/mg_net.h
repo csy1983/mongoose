@@ -56,6 +56,9 @@ union socket_address {
 #else
   struct sockaddr sin6;
 #endif
+#ifdef __LINUX_SOCKETCAN__
+  struct sockaddr_can scan;
+#endif
 };
 
 struct mg_connection;
@@ -155,6 +158,10 @@ struct mg_connection {
 #define MG_F_USER_4 (1 << 23)
 #define MG_F_USER_5 (1 << 24)
 #define MG_F_USER_6 (1 << 25)
+
+#ifdef __LINUX_SOCKETCAN__
+#define MG_F_CANBUS MG_F_USER_1
+#endif
 
 #if MG_ENABLE_SSL
   void *ssl_if_data; /* SSL library data. */

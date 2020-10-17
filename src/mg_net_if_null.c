@@ -26,6 +26,10 @@ static void mg_null_if_connect_udp(struct mg_connection *c) {
   c->flags |= MG_F_CLOSE_IMMEDIATELY;
 }
 
+static void mg_null_if_connect_can(struct mg_connection *c) {
+  c->flags |= MG_F_CLOSE_IMMEDIATELY;
+}
+
 static int mg_null_if_listen_tcp(struct mg_connection *c,
                                  union socket_address *sa) {
   (void) c;
@@ -39,6 +43,15 @@ static int mg_null_if_listen_udp(struct mg_connection *c,
   (void) sa;
   return -1;
 }
+
+#ifdef __LINUX_SOCKETCAN__
+static int mg_null_if_listen_can(struct mg_connection *c,
+                                 union socket_address *sa) {
+  (void) c;
+  (void) sa;
+  return -1;
+}
+#endif
 
 static int mg_null_if_tcp_send(struct mg_connection *c, const void *buf,
                                size_t len) {
@@ -56,6 +69,17 @@ static int mg_null_if_udp_send(struct mg_connection *c, const void *buf,
   return -1;
 }
 
+#ifdef __LINUX_SOCKETCAN__
+static int mg_null_if_can_send(struct mg_connection *c, const void *buf,
+                               size_t len, int can_id) {
+  (void) c;
+  (void) buf;
+  (void) len;
+  (void) can_id;
+  return -1;
+}
+#endif
+
 int mg_null_if_tcp_recv(struct mg_connection *c, void *buf, size_t len) {
   (void) c;
   (void) buf;
@@ -72,6 +96,17 @@ int mg_null_if_udp_recv(struct mg_connection *c, void *buf, size_t len,
   (void) sa_len;
   return -1;
 }
+
+#ifdef __LINUX_SOCKETCAN__
+int mg_null_if_tcp_recv(struct mg_connection *c, void *buf, size_t len,
+                        struct can_filter *rfilter) {
+  (void) c;
+  (void) buf;
+  (void) len;
+  (void) rfilter;
+  return -1;
+}
+#endif
 
 static int mg_null_if_create_conn(struct mg_connection *c) {
   (void) c;
@@ -124,6 +159,18 @@ static void mg_null_if_get_conn_addr(struct mg_connection *c, int remote,
   (void) sa;
 }
 
+#ifdef __LINUX_SOCKETCAN__
+#define MG_NULL_IFACE_VTABLE                                                   \
+  {                                                                            \
+    mg_null_if_init, mg_null_if_free, mg_null_if_add_conn,                     \
+        mg_null_if_remove_conn, mg_null_if_poll, mg_null_if_listen_tcp,        \
+        mg_null_if_listen_udp, mg_null_if_listen_can, mg_null_if_connect_tcp,  \
+        mg_null_if_connect_udp, mg_null_if_connect_can, mg_null_if_tcp_send,   \
+        mg_null_if_udp_send, mg_null_if_can_send, mg_null_if_tcp_recv,         \
+        mg_null_if_udp_recv, mg_null_if_can_recv, mg_null_if_create_conn,      \
+        mg_null_if_destroy_conn, mg_null_if_sock_set, mg_null_if_get_conn_addr,\
+  }
+#else
 #define MG_NULL_IFACE_VTABLE                                                   \
   {                                                                            \
     mg_null_if_init, mg_null_if_free, mg_null_if_add_conn,                     \
@@ -133,6 +180,7 @@ static void mg_null_if_get_conn_addr(struct mg_connection *c, int remote,
         mg_null_if_udp_recv, mg_null_if_create_conn, mg_null_if_destroy_conn,  \
         mg_null_if_sock_set, mg_null_if_get_conn_addr,                         \
   }
+#endif
 
 const struct mg_iface_vtable mg_null_iface_vtable = MG_NULL_IFACE_VTABLE;
 
