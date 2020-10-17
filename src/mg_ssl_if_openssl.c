@@ -1,7 +1,3 @@
-/*
- * Copyright (c) 2014-2016 Cesanta Software Limited
- * All rights reserved
- */
 
 #if MG_ENABLE_SSL && MG_SSL_IF == MG_SSL_IF_OPENSSL
 
@@ -78,9 +74,10 @@ enum mg_ssl_if_result mg_ssl_if_conn_init(
   SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_SSLv2);
   SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_SSLv3);
   SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_TLSv1);
-  SSL_CTX_set_session_id_context(ctx->ssl_ctx,
-                                 (void *) mg_default_session_id_context,
-                                 strlen(mg_default_session_id_context));
+  SSL_CTX_set_session_id_context(
+      ctx->ssl_ctx,
+      (const unsigned char *) mg_default_session_id_context,
+      strlen(mg_default_session_id_context));
 #ifdef MG_SSL_OPENSSL_NO_COMPRESSION
   SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif

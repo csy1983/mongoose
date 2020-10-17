@@ -1,7 +1,3 @@
-/*
- * Copyright (c) 2014 Cesanta Software Limited
- * All rights reserved
- */
 
 /*
  * === Common API reference
@@ -62,7 +58,15 @@ struct http_message {
   /* Headers */
   struct mg_str header_names[MG_MAX_HTTP_HEADERS];
   struct mg_str header_values[MG_MAX_HTTP_HEADERS];
+
+  /*
+   * Value of the Content-Length header if present,
+   * otherwise MG_HTTP_CONTENT_LENGTH_UNKNOWN.
+   */
+  size_t content_length;
 };
+
+#define MG_HTTP_CONTENT_LENGTH_UNKNOWN ((size_t) -1)
 
 #if MG_ENABLE_HTTP_WEBSOCKET
 /* WebSocket message */

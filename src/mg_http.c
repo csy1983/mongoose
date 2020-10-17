@@ -1,7 +1,3 @@
-/*
- * Copyright (c) 2014 Cesanta Software Limited
- * All rights reserved
- */
 
 #if MG_ENABLE_HTTP
 
@@ -174,7 +170,10 @@ struct mg_http_proto_data {
   struct mg_http_endpoint *endpoints;
   mg_event_handler_t endpoint_handler;
   struct mg_reverse_proxy_data reverse_proxy_data;
-  size_t rcvd; /* How many bytes we have received. */
+  size_t rcvd;           /* How many bytes we have received. */
+  size_t body_rcvd;      /* How many bytes of body we have received. */
+  size_t body_processed; /* How many bytes of body we have processed. */
+  int finished;
 };
 
 static void mg_http_proto_data_destructor(void *proto_data);
@@ -405,6 +404,7 @@ static int mg_http_get_request_len(const char *s, int buf_len) {
 static const char *mg_http_parse_headers(const char *s, const char *end,
                                          int len, struct http_message *req) {
   int i = 0;
+  req->content_length = MG_HTTP_CONTENT_LENGTH_UNKNOWN;
   while (i < (int) ARRAY_SIZE(req->header_names) - 1) {
     struct mg_str *k = &req->header_names[i], *v = &req->header_values[i];
 
@@ -430,9 +430,10 @@ static const char *mg_http_parse_headers(const char *s, const char *end,
       break;
     }
 
-    if (!mg_ncasecmp(k->p, "Content-Length", 14)) {
+    if (mg_ncasecmp(k->p, "Content-Length", 14) == 0) {
       req->body.len = (size_t) to64(v->p);
       req->message.len = len + req->body.len;
+      req->content_length = req->body.len;
     }
 
     i++;
@@ -508,7 +509,7 @@ int mg_parse_http(const char *s, int n, struct http_message *hm, int is_req) {
 struct mg_str *mg_get_http_header(struct http_message *hm, const char *name) {
   size_t i, len = strlen(name);
 
-  for (i = 0; hm->header_names[i].len > 0; i++) {
+  for (i = 0; i < MG_MAX_HTTP_HEADERS && hm->header_names[i].len > 0; i++) {
     struct mg_str *h = &hm->header_names[i], *v = &hm->header_values[i];
     if (h->p != NULL && h->len == len && !mg_ncasecmp(h->p, name, len))
       return v;
@@ -548,6 +549,7 @@ static void mg_http_transfer_file_data(struct mg_connection *nc) {
                      pd->file.keepalive));
       if (!pd->file.keepalive) nc->flags |= MG_F_SEND_AND_CLOSE;
       mg_http_free_proto_data_file(&pd->file);
+      pd->finished = 1;
     }
   } else if (pd->file.type == DATA_PUT) {
     struct mbuf *io = &nc->recv_mbuf;
@@ -560,6 +562,7 @@ static void mg_http_transfer_file_data(struct mg_connection *nc) {
     if (n == 0 || pd->file.sent >= pd->file.cl) {
       if (!pd->file.keepalive) nc->flags |= MG_F_SEND_AND_CLOSE;
       mg_http_free_proto_data_file(&pd->file);
+      pd->finished = 1;
     }
   }
 #if MG_ENABLE_HTTP_CGI
@@ -715,13 +718,26 @@ static void mg_http_call_endpoint_handler(struct mg_connection *nc, int ev,
                                           struct http_message *hm);
 
 static void deliver_chunk(struct mg_connection *c, struct http_message *hm,
-                          int req_len) {
+                          struct mg_http_proto_data *pd, int req_len) {
   /* Incomplete message received. Send MG_EV_HTTP_CHUNK event */
   hm->body.len = c->recv_mbuf.len - req_len;
+  if (hm->content_length != MG_HTTP_CONTENT_LENGTH_UNKNOWN) {
+    size_t body_remain = hm->content_length - pd->body_processed;
+    if (hm->body.len > body_remain) {
+      hm->body.len = body_remain;
+    }
+  }
+  if (pd != NULL) {
+    pd->body_rcvd = pd->body_processed + hm->body.len;
+  }
   c->flags &= ~MG_F_DELETE_CHUNK;
   mg_call(c, c->handler, c->user_data, MG_EV_HTTP_CHUNK, hm);
   /* Delete processed data if user set MG_F_DELETE_CHUNK flag */
-  if (c->flags & MG_F_DELETE_CHUNK) c->recv_mbuf.len = req_len;
+  if (c->flags & MG_F_DELETE_CHUNK) {
+    pd->body_processed += hm->body.len;
+    c->recv_mbuf.len = req_len;
+    hm->body.len = 0;
+  }
 }
 
 /*
@@ -792,7 +808,7 @@ void mg_http_handler(struct mg_connection *nc, int ev,
       int ev2 = is_req ? MG_EV_HTTP_REQUEST : MG_EV_HTTP_REPLY;
       hm->message.len = io->len;
       hm->body.len = io->buf + io->len - hm->body.p;
-      deliver_chunk(nc, hm, req_len);
+      deliver_chunk(nc, hm, pd, req_len);
       mg_http_call_endpoint_handler(nc, ev2, hm);
     }
     if (pd != NULL && pd->endpoint_handler != NULL &&
@@ -804,6 +820,8 @@ void mg_http_handler(struct mg_connection *nc, int ev,
 #if MG_ENABLE_FILESYSTEM
   if (pd != NULL && pd->file.fp != NULL) {
     mg_http_transfer_file_data(nc);
+    if (pd->finished) {
+    }
   }
 #endif
 
@@ -828,8 +846,7 @@ void mg_http_handler(struct mg_connection *nc, int ev,
 
   again:
     req_len = mg_parse_http(io->buf, io->len, hm, is_req);
-
-    if (req_len > 0) {
+    if (req_len > 0 && (pd == NULL || pd->finished)) {
       /* New request - new proto data */
       pd = mg_http_create_proto_data(nc);
       pd->rcvd = io->len;
@@ -911,42 +928,50 @@ void mg_http_handler(struct mg_connection *nc, int ev,
       }
     }
 #endif /* MG_ENABLE_HTTP_WEBSOCKET */
-    else if (hm->message.len > pd->rcvd) {
-      /* Not yet received all HTTP body, deliver MG_EV_HTTP_CHUNK */
-      deliver_chunk(nc, hm, req_len);
-      if (nc->recv_mbuf_limit > 0 && nc->recv_mbuf.len >= nc->recv_mbuf_limit) {
-        LOG(LL_ERROR, ("%p recv buffer (%lu bytes) exceeds the limit "
-                       "%lu bytes, and not drained, closing",
-                       nc, (unsigned long) nc->recv_mbuf.len,
-                       (unsigned long) nc->recv_mbuf_limit));
-        nc->flags |= MG_F_CLOSE_IMMEDIATELY;
-      }
-    } else {
-      /* We did receive all HTTP body. */
-      int request_done = 1;
-      int trigger_ev = nc->listener ? MG_EV_HTTP_REQUEST : MG_EV_HTTP_REPLY;
-      char addr[32];
-      mg_sock_addr_to_str(&nc->sa, addr, sizeof(addr),
-                          MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
-      DBG(("%p %s %.*s %.*s", nc, addr, (int) hm->method.len, hm->method.p,
-           (int) hm->uri.len, hm->uri.p));
-      deliver_chunk(nc, hm, req_len);
-      /* Whole HTTP message is fully buffered, call event handler */
-      mg_http_call_endpoint_handler(nc, trigger_ev, hm);
-      mbuf_remove(io, hm->message.len);
-      pd->rcvd -= hm->message.len;
+    else {
+      deliver_chunk(nc, hm, pd, req_len);
+      if (hm->message.len > pd->rcvd &&
+          (hm->content_length == MG_HTTP_CONTENT_LENGTH_UNKNOWN ||
+           pd->body_rcvd < hm->content_length)) {
+        /* Not yet received all HTTP body, deliver MG_EV_HTTP_CHUNK */
+        if (nc->recv_mbuf_limit > 0 &&
+            nc->recv_mbuf.len >= nc->recv_mbuf_limit) {
+          LOG(LL_ERROR, ("%p recv buffer (%lu bytes) exceeds the limit "
+                         "%lu bytes, and not drained, closing",
+                         nc, (unsigned long) nc->recv_mbuf.len,
+                         (unsigned long) nc->recv_mbuf_limit));
+          nc->flags |= MG_F_CLOSE_IMMEDIATELY;
+        }
+      } else {
+        /* We did receive all HTTP body. */
+        int request_done = 1;
+        int trigger_ev = nc->listener ? MG_EV_HTTP_REQUEST : MG_EV_HTTP_REPLY;
+        char addr[32];
+        mg_sock_addr_to_str(&nc->sa, addr, sizeof(addr),
+                            MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
+        DBG(("%p %s %.*s %.*s", nc, addr, (int) hm->method.len, hm->method.p,
+             (int) hm->uri.len, hm->uri.p));
+        /* Whole HTTP message is fully buffered, call event handler */
+        mg_http_call_endpoint_handler(nc, trigger_ev, hm);
+        mbuf_remove(io, req_len + hm->body.len);
+        pd->rcvd -= hm->message.len;
+        pd->body_rcvd = 0;
 #if MG_ENABLE_FILESYSTEM
-      /* We don't have a generic mechanism of communicating that we are done
-       * responding to a request (should probably add one). But if we are
-       * serving
-       * a file, we are definitely not done. */
-      if (pd->file.fp != NULL) request_done = 0;
+        /* We don't have a generic mechanism of communicating that we are done
+         * responding to a request (should probably add one). But if we are
+         * serving
+         * a file, we are definitely not done. */
+        if (pd->file.fp != NULL) request_done = 0;
 #endif
 #if MG_ENABLE_HTTP_CGI
-      /* If this is a CGI request, we are not done either. */
-      if (pd->cgi.cgi_nc != NULL) request_done = 0;
+        /* If this is a CGI request, we are not done either. */
+        if (pd->cgi.cgi_nc != NULL) request_done = 0;
 #endif
-      if (request_done && io->len > 0) goto again;
+        pd->finished = request_done;
+        DBG(("%p finished %d ml %d bl %d", nc, pd->finished,
+             (int) hm->message.len, (int) hm->body.len));
+        if (request_done && io->len > 0) goto again;
+      }
     }
   }
 }
@@ -1497,7 +1522,7 @@ void mg_http_serve_file_internal(struct mg_connection *nc,
     };
     mg_http_send_error(nc, code, "Open failed");
   } else {
-    char etag[50], current_time[50], last_modified[50], range[70];
+    char etag[50], current_time[50], last_modified[50], range[76];
     time_t t = (time_t) mg_time();
     int64_t r1 = 0, r2 = 0, cl = st.st_size;
     struct mg_str *range_hdr = mg_get_http_header(hm, "Range");
