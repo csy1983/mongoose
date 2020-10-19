@@ -583,10 +583,12 @@ static int mg_do_recv(struct mg_connection *nc) {
   int res = 0;
   char *buf = NULL;
   size_t len = (nc->flags & MG_F_UDP ? MG_UDP_IO_SIZE : MG_TCP_IO_SIZE);
+#ifndef __LINUX_SOCKETCAN__
   if ((nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) ||
       ((nc->flags & MG_F_LISTENING) && !(nc->flags & MG_F_UDP))) {
     return -1;
   }
+#endif
   do {
     len = recv_avail_size(nc, len);
     if (len == 0) {
@@ -760,10 +762,12 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
   if (nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) {
     return;
   }
+#ifndef __LINUX_SOCKETCAN__
   if (!(nc->flags & MG_F_UDP)) {
     if (nc->flags & MG_F_LISTENING) return;
     if (len > MG_TCP_IO_SIZE) len = MG_TCP_IO_SIZE;
   }
+#endif
 #if MG_ENABLE_SSL
   if (nc->flags & MG_F_SSL) {
     if (nc->flags & MG_F_SSL_HANDSHAKE_DONE) {
@@ -825,7 +829,9 @@ MG_INTERNAL struct mg_connection *mg_do_connect(struct mg_connection *nc,
                                                 union socket_address *sa) {
   LOG(LL_DEBUG, ("%p %s://%s:%hu", nc, proto == SOCK_DGRAM ? "udp" : "tcp",
                  inet_ntoa(sa->sin.sin_addr), ntohs(sa->sin.sin_port)));
-
+#ifdef __LINUX_SOCKETCAN__
+# error TODO:
+#endif
   nc->flags |= MG_F_CONNECTING;
   if (proto == SOCK_DGRAM) {
     nc->iface->vtable->connect_udp(nc);

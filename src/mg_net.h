@@ -145,6 +145,7 @@ struct mg_connection {
 
 #ifdef __LINUX_SOCKETCAN__
 #define MG_F_CANBUS MG_F_USER_1
+#define MG_F_CANBUS_BUSY MG_F_USER_2
 #endif
 
 #if MG_ENABLE_SSL

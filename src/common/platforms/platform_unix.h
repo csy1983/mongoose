@@ -54,7 +54,9 @@
 #include <unistd.h>
 
 #ifdef __LINUX_SOCKETCAN__
+#include <sys/ioctl.h>
 #include <net/if.h>
+#include <linux/if.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #endif

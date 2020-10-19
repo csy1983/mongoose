@@ -183,20 +183,20 @@ int mg_socks_if_udp_recv(struct mg_connection *c, void *buf, size_t len,
 }
 
 #ifdef __LINUX_SOCKETCAN__
-int mg_socks_if_can_recv(struct mg_connection *c, void *buf, size_t len,
-                         struct can_filter *rfilter) {
+int mg_socks_if_can_recv(struct mg_connection *c, void *buf, size_t len) {
   (void) c;
   (void) buf;
   (void) len;
   (void) sa;
   (void) sa_len;
-  (void) rfilter;
   return -1;
 }
 #endif
 
-static int mg_socks_if_create_conn(struct mg_connection *c) {
+static int mg_socks_if_create_conn(struct mg_connection *c,
+                                   const union socket_address *sa) {
   (void) c;
+  (void) sa;
   return 1;
 }
 

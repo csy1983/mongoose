@@ -10,8 +10,10 @@ static void mg_null_if_connect_udp(struct mg_connection *c) {
 }
 
 #ifdef __LINUX_SOCKETCAN__
-static void mg_null_if_connect_can(struct mg_connection *c) {
+static void mg_null_if_connect_can(struct mg_connection *c,
+                                   const union socket_address *sa) {
   c->flags |= MG_F_CLOSE_IMMEDIATELY;
+  (void) sa;
 }
 #endif
 
@@ -83,12 +85,10 @@ int mg_null_if_udp_recv(struct mg_connection *c, void *buf, size_t len,
 }
 
 #ifdef __LINUX_SOCKETCAN__
-int mg_null_if_tcp_recv(struct mg_connection *c, void *buf, size_t len,
-                        struct can_filter *rfilter) {
+int mg_null_if_can_recv(struct mg_connection *c, void *buf, size_t len) {
   (void) c;
   (void) buf;
   (void) len;
-  (void) rfilter;
   return -1;
 }
 #endif
