@@ -392,7 +392,7 @@ struct {								\
 /*
  * List declarations.
  */
-#define	LIST_HEAD(name, type)						\
+#define	__LIST_HEAD(name, type)						\
 struct name {								\
 	struct type *lh_first;	/* first element */			\
 }

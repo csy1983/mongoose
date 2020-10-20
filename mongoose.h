@@ -418,7 +418,9 @@ unsigned int sleep(unsigned int seconds);
 #include <unistd.h>
 
 #ifdef __LINUX_SOCKETCAN__
+#include <sys/ioctl.h>
 #include <net/if.h>
+#include <linux/if.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #endif
@@ -2758,7 +2760,7 @@ struct {								\
 /*
  * List declarations.
  */
-#define	LIST_HEAD(name, type)						\
+#define	__LIST_HEAD(name, type)						\
 struct name {								\
 	struct type *lh_first;	/* first element */			\
 }
@@ -3348,23 +3350,21 @@ struct mg_iface_vtable {
   void (*connect_udp)(struct mg_connection *nc);
 #ifdef __LINUX_SOCKETCAN__
   /* Open a CAN socket. Doesn't actually connect anything. */
-  void (*connect_can)(struct mg_connection *nc);
+  void (*connect_can)(struct mg_connection *nc, const union socket_address *sa);
 #endif
 
   /* Send functions for TCP and UDP. Sent data is copied before return. */
   int (*tcp_send)(struct mg_connection *nc, const void *buf, size_t len);
   int (*udp_send)(struct mg_connection *nc, const void *buf, size_t len);
 #ifdef __LINUX_SOCKETCAN__
-  int (*can_send)(struct mg_connection *nc, const void *buf, size_t len,
-                  int can_id);
+  int (*can_send)(struct mg_connection *nc, const void *buf, size_t len);
 #endif
 
   int (*tcp_recv)(struct mg_connection *nc, void *buf, size_t len);
   int (*udp_recv)(struct mg_connection *nc, void *buf, size_t len,
                   union socket_address *sa, size_t *sa_len);
 #ifdef __LINUX_SOCKETCAN__
-  int (*can_recv)(struct mg_connection *nc, void *buf, size_t len,
-                  struct can_filter rfilter);
+  int (*can_recv)(struct mg_connection *nc, void *buf, size_t len);
 #endif
 
   /* Perform interface-related connection initialization. Return 1 on ok. */
@@ -3637,6 +3637,7 @@ struct mg_connection {
 
 #ifdef __LINUX_SOCKETCAN__
 #define MG_F_CANBUS MG_F_USER_1
+#define MG_F_CANBUS_BUSY MG_F_USER_2
 #endif
 
 #if MG_ENABLE_SSL
@@ -5621,7 +5622,7 @@ struct mg_mqtt_session {
 
 /* MQTT broker. */
 struct mg_mqtt_broker {
-  LIST_HEAD(_mg_sesshead, mg_mqtt_session) sessions; /* Session list */
+  __LIST_HEAD(_mg_sesshead, mg_mqtt_session) sessions; /* Session list */
   void *user_data;                                   /* User data */
 };
 

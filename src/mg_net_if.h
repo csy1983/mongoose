@@ -61,8 +61,7 @@ struct mg_iface_vtable {
   int (*tcp_send)(struct mg_connection *nc, const void *buf, size_t len);
   int (*udp_send)(struct mg_connection *nc, const void *buf, size_t len);
 #ifdef __LINUX_SOCKETCAN__
-  int (*can_send)(struct mg_connection *nc, const void *buf, size_t len,
-                  int can_id);
+  int (*can_send)(struct mg_connection *nc, const void *buf, size_t len);
 #endif
 
   int (*tcp_recv)(struct mg_connection *nc, void *buf, size_t len);

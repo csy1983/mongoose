@@ -2804,10 +2804,12 @@ static int mg_do_recv(struct mg_connection *nc) {
   int res = 0;
   char *buf = NULL;
   size_t len = (nc->flags & MG_F_UDP ? MG_UDP_IO_SIZE : MG_TCP_IO_SIZE);
+#ifndef __LINUX_SOCKETCAN__
   if ((nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) ||
       ((nc->flags & MG_F_LISTENING) && !(nc->flags & MG_F_UDP))) {
     return -1;
   }
+#endif
   do {
     len = recv_avail_size(nc, len);
     if (len == 0) {
@@ -2981,10 +2983,12 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
   if (nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) {
     return;
   }
+#ifndef __LINUX_SOCKETCAN__
   if (!(nc->flags & MG_F_UDP)) {
     if (nc->flags & MG_F_LISTENING) return;
     if (len > MG_TCP_IO_SIZE) len = MG_TCP_IO_SIZE;
   }
+#endif
 #if MG_ENABLE_SSL
   if (nc->flags & MG_F_SSL) {
     if (nc->flags & MG_F_SSL_HANDSHAKE_DONE) {
@@ -3012,7 +3016,7 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
       n = nc->iface->vtable->udp_send(nc, buf, len);
 #ifdef __LINUX_SOCKETCAN__
     } else if (nc->flags & MG_F_CANBUS) {
-      n = nc->iface->vtable->can_send(nc, buf, len, (int)nc->user_data);
+      n = nc->iface->vtable->can_send(nc, buf, len);
 #endif
     } else {
       n = nc->iface->vtable->tcp_send(nc, buf, len);
@@ -3046,7 +3050,9 @@ MG_INTERNAL struct mg_connection *mg_do_connect(struct mg_connection *nc,
                                                 union socket_address *sa) {
   LOG(LL_DEBUG, ("%p %s://%s:%hu", nc, proto == SOCK_DGRAM ? "udp" : "tcp",
                  inet_ntoa(sa->sin.sin_addr), ntohs(sa->sin.sin_port)));
-
+#ifdef __LINUX_SOCKETCAN__
+# error TODO:
+#endif
   nc->flags |= MG_F_CONNECTING;
   if (proto == SOCK_DGRAM) {
     nc->iface->vtable->connect_udp(nc);
@@ -3581,8 +3587,10 @@ static void mg_null_if_connect_udp(struct mg_connection *c) {
 }
 
 #ifdef __LINUX_SOCKETCAN__
-static void mg_null_if_connect_can(struct mg_connection *c) {
+static void mg_null_if_connect_can(struct mg_connection *c,
+                                   const union socket_address *sa) {
   c->flags |= MG_F_CLOSE_IMMEDIATELY;
+  (void) sa;
 }
 #endif
 
@@ -3627,11 +3635,10 @@ static int mg_null_if_udp_send(struct mg_connection *c, const void *buf,
 
 #ifdef __LINUX_SOCKETCAN__
 static int mg_null_if_can_send(struct mg_connection *c, const void *buf,
-                               size_t len, int can_id) {
+                               size_t len) {
   (void) c;
   (void) buf;
   (void) len;
-  (void) can_id;
   return -1;
 }
 #endif
@@ -3654,12 +3661,10 @@ int mg_null_if_udp_recv(struct mg_connection *c, void *buf, size_t len,
 }
 
 #ifdef __LINUX_SOCKETCAN__
-int mg_null_if_tcp_recv(struct mg_connection *c, void *buf, size_t len,
-                        struct can_filter *rfilter) {
+int mg_null_if_can_recv(struct mg_connection *c, void *buf, size_t len) {
   (void) c;
   (void) buf;
   (void) len;
-  (void) rfilter;
   return -1;
 }
 #endif
@@ -3811,6 +3816,30 @@ void mg_socket_if_connect_udp(struct mg_connection *nc) {
   nc->err = 0;
 }
 
+#ifdef __LINUX_SOCKETCAN__
+void mg_socket_if_connect_can(struct mg_connection *nc,
+                              const union socket_address *sa) {
+  int rc = 0;
+  sock_t sock = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+  if (sock < 0) {
+    nc->err = (mg_get_errno() ? mg_get_errno() : 1);
+    return;
+  }
+
+  /* disable default receive filter on this RAW socket */
+  /* This is obsolete as we do not read from the socket at all, but for */
+  /* this reason we can remove the receive list in the Kernel to save a */
+  /* little (really a very little!) CPU usage.                          */
+  setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0);
+
+  rc = bind(sock, (struct sockaddr *)sa, sizeof(sa->scan));
+  if (rc < 0) {
+    nc->err = (mg_get_errno() ? mg_get_errno() : 1);
+    return;
+  }
+}
+#endif
+
 int mg_socket_if_listen_tcp(struct mg_connection *nc,
                             union socket_address *sa) {
   int proto = 0;
@@ -3838,13 +3867,13 @@ static int mg_socket_if_listen_can(struct mg_connection *nc,
   if (sock < 0) return (mg_get_errno() ? mg_get_errno() : 1);
 
   /* disable default receive filter on this RAW socket */
-	/* This is obsolete as we do not read from the socket at all, but for */
-	/* this reason we can remove the receive list in the Kernel to save a */
-	/* little (really a very little!) CPU usage.                          */
-	setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0);
+  /* This is obsolete as we do not read from the socket at all, but for */
+  /* this reason we can remove the receive list in the Kernel to save a */
+  /* little (really a very little!) CPU usage.                          */
+  setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0);
 
   rc = bind(sock, (struct sockaddr *)sa, sizeof(sa->scan));
-  if (rc < 0) return (mg_get_errno() ? mg_get_errno() : 1)
+  if (rc < 0) return (mg_get_errno() ? mg_get_errno() : 1);
   mg_sock_set(nc, sock);
   return 0;
 }
@@ -3865,48 +3894,55 @@ static int mg_socket_if_udp_send(struct mg_connection *nc, const void *buf,
 }
 
 #ifdef __LINUX_SOCKETCAN__
-static int mg_socket_if_tcp_send(struct mg_connection *nc, const void *buf,
-                                 size_t len, int can_id) {
+static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
+                                 size_t len) {
   struct can_frame frame;
   size_t rembytes = len;
   char *ptr = (char *)buf;
-	int mtu = sizeof(frame);
-	size_t max_dlen = CAN_MAX_DLEN;
-	fd_set fds;
+  int mtu = sizeof(frame);
+  size_t max_dlen = CAN_MAX_DLEN;
+  fd_set fds;
+  int can_id = nc->mgr->user_data;
   int i;
+  int rc = 0;
 
-	memset(&frame, 0, sizeof(frame));
-	can_id = cfg->can_id_start;
+  nc->flags |= MG_F_CANBUS_BUSY;
+  memset(&frame, 0, sizeof(frame));
 
-	while (rembytes > 0) {
-		FD_ZERO(&fds);
+  while (rembytes > 0) {
+    FD_ZERO(&fds);
     FD_SET(nc->sock, &fds);
 
-		/* Use select() to avoid lots of duplicated can_write errors */
-		if (select(nc->sock + 1, NULL, &fds, NULL, NULL) < 0)
-			return 0;
+    /* Use select() to avoid lots of duplicated can_write errors */
+    if (select(nc->sock + 1, NULL, &fds, NULL, NULL) < 0)
+      goto error;
 
-		if (!FD_ISSET(nc->sock, &fds))
-			continue;
+    if (!FD_ISSET(nc->sock, &fds))
+      continue;
 
-		frame.can_id = can_id++;
-		frame.can_dlc = (size_t)(rembytes > max_dlen ? max_dlen : rembytes);
-		for (i = 0; i < frame.can_dlc; i++)
-			frame.data[i] = *(ptr + i);
+    frame.can_id = can_id++;
+    frame.can_dlc = (size_t)(rembytes > max_dlen ? max_dlen : rembytes);
+    for (i = 0; i < frame.can_dlc; i++)
+      frame.data[i] = *(ptr + i);
 
-		usleep(80);
+    usleep(80);
 
-		if (write(nc->sock, &frame, mtu) != mtu) {
-			if (errno == ENOBUFS)
-				continue;
-			return 0;
-		}
+    if (write(nc->sock, &frame, mtu) != mtu) {
+      if (errno == ENOBUFS)
+        continue;
+      rc = 0;
+      goto error;
+    }
 
-		ptr += frame.can_dlc;
-		rembytes -= frame.can_dlc;
-	}
+    ptr += frame.can_dlc;
+    rembytes -= frame.can_dlc;
+  }
 
-	return len - rembytes;
+  rc = len - rembytes;
+
+error:
+  nc->flags &= ~MG_F_CANBUS_BUSY;
+  return rc;
 }
 #endif
 
@@ -3934,16 +3970,9 @@ static int mg_socket_if_udp_recv(struct mg_connection *nc, void *buf,
 
 #ifdef __LINUX_SOCKETCAN__
 static int mg_socket_if_can_recv(struct mg_connection *nc, void *buf,
-                                 size_t len, struct can_filter *rfilter) {
+                                 size_t len) {
   struct can_frame frame;
-  int n;
-  if (!rfilter || (rfilter->can_id == 0 && rfilter->can_mask == 0)) {
-    /* Disable filter */
-    setsockopt(nc->sock, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0);
-  } else {
-    setsockopt(nc->sock, SOL_CAN_RAW, CAN_RAW_FILTER, rfilter, sizeof(*rfilter));
-  }
-  n = read(nc->sock, &frame, sizeof(struct can_frame));
+  int n = read(nc->sock, &frame, sizeof(struct can_frame));
   if (n < 0 && !mg_is_error()) {
     n = 0;
   } else {
@@ -4591,11 +4620,10 @@ static int mg_socks_if_udp_send(struct mg_connection *c, const void *buf,
 
 #ifdef __LINUX_SOCKETCAN__
 static int mg_socks_if_can_send(struct mg_connection *c, const void *buf,
-                                size_t len, int can_id) {
+                                size_t len) {
   (void) c;
   (void) buf;
   (void) len;
-  (void) can_id;
   return -1;
 }
 #endif
@@ -4623,20 +4651,20 @@ int mg_socks_if_udp_recv(struct mg_connection *c, void *buf, size_t len,
 }
 
 #ifdef __LINUX_SOCKETCAN__
-int mg_socks_if_can_recv(struct mg_connection *c, void *buf, size_t len,
-                         struct can_filter *rfilter) {
+int mg_socks_if_can_recv(struct mg_connection *c, void *buf, size_t len) {
   (void) c;
   (void) buf;
   (void) len;
   (void) sa;
   (void) sa_len;
-  (void) rfilter;
   return -1;
 }
 #endif
 
-static int mg_socks_if_create_conn(struct mg_connection *c) {
+static int mg_socks_if_create_conn(struct mg_connection *c,
+                                   const union socket_address *sa) {
   (void) c;
+  (void) sa;
   return 1;
 }
 

@@ -795,7 +795,7 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
       n = nc->iface->vtable->udp_send(nc, buf, len);
 #ifdef __LINUX_SOCKETCAN__
     } else if (nc->flags & MG_F_CANBUS) {
-      n = nc->iface->vtable->can_send(nc, buf, len, (int)nc->user_data);
+      n = nc->iface->vtable->can_send(nc, buf, len);
 #endif
     } else {
       n = nc->iface->vtable->tcp_send(nc, buf, len);

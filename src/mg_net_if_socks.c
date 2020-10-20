@@ -151,11 +151,10 @@ static int mg_socks_if_udp_send(struct mg_connection *c, const void *buf,
 
 #ifdef __LINUX_SOCKETCAN__
 static int mg_socks_if_can_send(struct mg_connection *c, const void *buf,
-                                size_t len, int can_id) {
+                                size_t len) {
   (void) c;
   (void) buf;
   (void) len;
-  (void) can_id;
   return -1;
 }
 #endif

@@ -143,17 +143,18 @@ static int mg_socket_if_udp_send(struct mg_connection *nc, const void *buf,
 
 #ifdef __LINUX_SOCKETCAN__
 static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
-                                 size_t len, int can_id) {
+                                 size_t len) {
   struct can_frame frame;
   size_t rembytes = len;
   char *ptr = (char *)buf;
   int mtu = sizeof(frame);
   size_t max_dlen = CAN_MAX_DLEN;
   fd_set fds;
+  int can_id = nc->mgr->user_data;
   int i;
+  int rc = 0;
 
   nc->flags |= MG_F_CANBUS_BUSY;
-
   memset(&frame, 0, sizeof(frame));
 
   while (rembytes > 0) {
@@ -161,10 +162,8 @@ static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
     FD_SET(nc->sock, &fds);
 
     /* Use select() to avoid lots of duplicated can_write errors */
-    if (select(nc->sock + 1, NULL, &fds, NULL, NULL) < 0) {
-      nc->flags &= ~MG_F_CANBUS_BUSY;
-      return 0;
-    }
+    if (select(nc->sock + 1, NULL, &fds, NULL, NULL) < 0)
+      goto error;
 
     if (!FD_ISSET(nc->sock, &fds))
       continue;
@@ -179,16 +178,19 @@ static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
     if (write(nc->sock, &frame, mtu) != mtu) {
       if (errno == ENOBUFS)
         continue;
-      nc->flags &= ~MG_F_CANBUS_BUSY;
-      return 0;
+      rc = 0;
+      goto error;
     }
 
     ptr += frame.can_dlc;
     rembytes -= frame.can_dlc;
   }
 
+  rc = len - rembytes;
+
+error:
   nc->flags &= ~MG_F_CANBUS_BUSY;
-  return len - rembytes;
+  return rc;
 }
 #endif
 
