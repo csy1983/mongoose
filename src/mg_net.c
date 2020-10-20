@@ -830,7 +830,7 @@ MG_INTERNAL struct mg_connection *mg_do_connect(struct mg_connection *nc,
   LOG(LL_DEBUG, ("%p %s://%s:%hu", nc, proto == SOCK_DGRAM ? "udp" : "tcp",
                  inet_ntoa(sa->sin.sin_addr), ntohs(sa->sin.sin_port)));
 #ifdef __LINUX_SOCKETCAN__
-# error TODO:
+# warning TODO: implement mg_do_connect() for SocketCAN
 #endif
   nc->flags |= MG_F_CONNECTING;
   if (proto == SOCK_DGRAM) {

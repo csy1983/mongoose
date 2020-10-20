@@ -150,7 +150,7 @@ static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
   int mtu = sizeof(frame);
   size_t max_dlen = CAN_MAX_DLEN;
   fd_set fds;
-  int can_id = nc->mgr->user_data;
+  int can_id = (int)nc->mgr->user_data;
   int i;
   int rc = 0;
 
