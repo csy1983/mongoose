@@ -142,6 +142,8 @@ static int mg_socket_if_udp_send(struct mg_connection *nc, const void *buf,
 }
 
 #ifdef __LINUX_SOCKETCAN__
+#warning Refer to https://github.com/linux-can/can-utils/blob/master/cangen.c
+#warning Refer to https://github.com/CANopenNode/CANopenNode/blob/master/socketCAN/CO_driver.c#L608
 static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
                                  size_t len) {
   struct can_frame frame;
