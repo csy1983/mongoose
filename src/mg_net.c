@@ -584,10 +584,18 @@ static int mg_do_recv(struct mg_connection *nc) {
   char *buf = NULL;
   size_t len = (nc->flags & MG_F_UDP ? MG_UDP_IO_SIZE : MG_TCP_IO_SIZE);
 
+#ifdef __LINUX_SOCKETCAN__
+  if ((nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) ||
+      ((nc->flags & MG_F_LISTENING) && !(nc->flags & MG_F_UDP)
+                                    && !(nc->flags & MG_F_CANBUS))) {
+    return -1;
+  }
+#else
   if ((nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) ||
       ((nc->flags & MG_F_LISTENING) && !(nc->flags & MG_F_UDP))) {
     return -1;
   }
+#endif
 
   do {
     len = recv_avail_size(nc, len);
@@ -763,7 +771,11 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
     return;
   }
 
+#ifdef __LINUX_SOCKETCAN__
+  if (!(nc->flags & MG_F_UDP) && !(nc->flags & MG_F_CANBUS)) {
+#else
   if (!(nc->flags & MG_F_UDP)) {
+#endif
     if (nc->flags & MG_F_LISTENING) return;
     if (len > MG_TCP_IO_SIZE) len = MG_TCP_IO_SIZE;
   }
