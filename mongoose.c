@@ -2804,12 +2804,12 @@ static int mg_do_recv(struct mg_connection *nc) {
   int res = 0;
   char *buf = NULL;
   size_t len = (nc->flags & MG_F_UDP ? MG_UDP_IO_SIZE : MG_TCP_IO_SIZE);
-#ifndef __LINUX_SOCKETCAN__
+
   if ((nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) ||
       ((nc->flags & MG_F_LISTENING) && !(nc->flags & MG_F_UDP))) {
     return -1;
   }
-#endif
+
   do {
     len = recv_avail_size(nc, len);
     if (len == 0) {
@@ -2959,7 +2959,7 @@ out:
 
 #ifdef __LINUX_SOCKETCAN__
 static int mg_recv_can(struct mg_connection *nc, char *buf, size_t len) {
-  int n = nc->iface->vtable->can_recv(nc, buf, len);
+  int n = nc->iface->vtable->canbus_recv(nc, buf, len);
   DBG(("%p <- %d bytes", nc, n));
 
   if (n > 0) {
@@ -2983,12 +2983,12 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
   if (nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) {
     return;
   }
-#ifndef __LINUX_SOCKETCAN__
+
   if (!(nc->flags & MG_F_UDP)) {
     if (nc->flags & MG_F_LISTENING) return;
     if (len > MG_TCP_IO_SIZE) len = MG_TCP_IO_SIZE;
   }
-#endif
+
 #if MG_ENABLE_SSL
   if (nc->flags & MG_F_SSL) {
     if (nc->flags & MG_F_SSL_HANDSHAKE_DONE) {
@@ -3011,12 +3011,12 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
     }
   } else
 #endif
-      if (len > 0) {
+  if (len > 0) {
     if (nc->flags & MG_F_UDP) {
       n = nc->iface->vtable->udp_send(nc, buf, len);
 #ifdef __LINUX_SOCKETCAN__
     } else if (nc->flags & MG_F_CANBUS) {
-      n = nc->iface->vtable->can_send(nc, buf, len);
+      n = nc->iface->vtable->canbus_send(nc, buf, len);
 #endif
     } else {
       n = nc->iface->vtable->tcp_send(nc, buf, len);
@@ -3324,7 +3324,7 @@ struct mg_connection *mg_bind_opt(struct mg_mgr *mgr, const char *address,
     rc = nc->iface->vtable->listen_udp(nc, &nc->sa);
 #ifdef __LINUX_SOCKETCAN__
   } else if (nc->flags & MG_F_CANBUS) {
-    rc = nc->iface->vtable->listen_can(nc, &nc->sa);
+    rc = nc->iface->vtable->listen_canbus(nc, &nc->sa);
 #endif
   } else {
     rc = nc->iface->vtable->listen_tcp(nc, &nc->sa);
@@ -3817,8 +3817,8 @@ void mg_socket_if_connect_udp(struct mg_connection *nc) {
 }
 
 #ifdef __LINUX_SOCKETCAN__
-void mg_socket_if_connect_can(struct mg_connection *nc,
-                              const union socket_address *sa) {
+void mg_socket_if_connect_canbus(struct mg_connection *nc,
+                                 const union socket_address *sa) {
   int rc = 0;
   sock_t sock = socket(PF_CAN, SOCK_RAW, CAN_RAW);
   if (sock < 0) {
@@ -3860,8 +3860,8 @@ static int mg_socket_if_listen_udp(struct mg_connection *nc,
 }
 
 #ifdef __LINUX_SOCKETCAN__
-static int mg_socket_if_listen_can(struct mg_connection *nc,
-                                   union socket_address *sa) {
+static int mg_socket_if_listen_canbus(struct mg_connection *nc,
+                                      union socket_address *sa) {
   int rc = 0;
   sock_t sock = socket(PF_CAN, SOCK_RAW, CAN_RAW);
   if (sock < 0) return (mg_get_errno() ? mg_get_errno() : 1);
@@ -3896,8 +3896,8 @@ static int mg_socket_if_udp_send(struct mg_connection *nc, const void *buf,
 #ifdef __LINUX_SOCKETCAN__
 #warning Refer to https://github.com/linux-can/can-utils/blob/master/cangen.c
 #warning Refer to https://github.com/CANopenNode/CANopenNode/blob/master/socketCAN/CO_driver.c#L608
-static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
-                                 size_t len) {
+static int mg_socket_if_canbus_send(struct mg_connection *nc, const void *buf,
+                                    size_t len) {
   struct can_frame frame;
   size_t rembytes = len;
   char *ptr = (char *)buf;
@@ -3920,7 +3920,7 @@ static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
       goto error;
 
     if (!FD_ISSET(nc->sock, &fds))
-      continue;
+      break; /* Should not reach here */
 
     frame.can_id = can_id++;
     frame.can_dlc = (size_t)(rembytes > max_dlen ? max_dlen : rembytes);
@@ -3931,7 +3931,7 @@ static int mg_socket_if_can_send(struct mg_connection *nc, const void *buf,
 
     if (write(nc->sock, &frame, mtu) != mtu) {
       if (errno == ENOBUFS)
-        continue;
+        break;
       rc = 0;
       goto error;
     }
@@ -3971,8 +3971,8 @@ static int mg_socket_if_udp_recv(struct mg_connection *nc, void *buf,
 }
 
 #ifdef __LINUX_SOCKETCAN__
-static int mg_socket_if_can_recv(struct mg_connection *nc, void *buf,
-                                 size_t len) {
+static int mg_socket_if_canbus_recv(struct mg_connection *nc, void *buf,
+                                    size_t len) {
   struct can_frame frame;
   int n = read(nc->sock, &frame, sizeof(struct can_frame));
   if (n < 0 && !mg_is_error()) {
@@ -4422,16 +4422,16 @@ void mg_socket_if_get_conn_addr(struct mg_connection *nc, int remote,
     mg_socket_if_poll,                                                  \
     mg_socket_if_listen_tcp,                                            \
     mg_socket_if_listen_udp,                                            \
-    mg_socket_if_listen_can,                                            \
+    mg_socket_if_listen_canbus,                                         \
     mg_socket_if_connect_tcp,                                           \
     mg_socket_if_connect_udp,                                           \
-    mg_socket_if_connect_can,                                           \
+    mg_socket_if_connect_canbus,                                        \
     mg_socket_if_tcp_send,                                              \
     mg_socket_if_udp_send,                                              \
-    mg_socket_if_can_send,                                              \
+    mg_socket_if_canbus_send,                                           \
     mg_socket_if_tcp_recv,                                              \
     mg_socket_if_udp_recv,                                              \
-    mg_socket_if_can_recv,                                              \
+    mg_socket_if_canbus_recv,                                           \
     mg_socket_if_create_conn,                                           \
     mg_socket_if_destroy_conn,                                          \
     mg_socket_if_sock_set,                                              \

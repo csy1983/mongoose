@@ -583,12 +583,12 @@ static int mg_do_recv(struct mg_connection *nc) {
   int res = 0;
   char *buf = NULL;
   size_t len = (nc->flags & MG_F_UDP ? MG_UDP_IO_SIZE : MG_TCP_IO_SIZE);
-#ifndef __LINUX_SOCKETCAN__
+
   if ((nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) ||
       ((nc->flags & MG_F_LISTENING) && !(nc->flags & MG_F_UDP))) {
     return -1;
   }
-#endif
+
   do {
     len = recv_avail_size(nc, len);
     if (len == 0) {
@@ -738,7 +738,7 @@ out:
 
 #ifdef __LINUX_SOCKETCAN__
 static int mg_recv_can(struct mg_connection *nc, char *buf, size_t len) {
-  int n = nc->iface->vtable->can_recv(nc, buf, len);
+  int n = nc->iface->vtable->canbus_recv(nc, buf, len);
   DBG(("%p <- %d bytes", nc, n));
 
   if (n > 0) {
@@ -762,12 +762,12 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
   if (nc->flags & (MG_F_CLOSE_IMMEDIATELY | MG_F_CONNECTING)) {
     return;
   }
-#ifndef __LINUX_SOCKETCAN__
+
   if (!(nc->flags & MG_F_UDP)) {
     if (nc->flags & MG_F_LISTENING) return;
     if (len > MG_TCP_IO_SIZE) len = MG_TCP_IO_SIZE;
   }
-#endif
+
 #if MG_ENABLE_SSL
   if (nc->flags & MG_F_SSL) {
     if (nc->flags & MG_F_SSL_HANDSHAKE_DONE) {
@@ -790,12 +790,12 @@ void mg_if_can_send_cb(struct mg_connection *nc) {
     }
   } else
 #endif
-      if (len > 0) {
+  if (len > 0) {
     if (nc->flags & MG_F_UDP) {
       n = nc->iface->vtable->udp_send(nc, buf, len);
 #ifdef __LINUX_SOCKETCAN__
     } else if (nc->flags & MG_F_CANBUS) {
-      n = nc->iface->vtable->can_send(nc, buf, len);
+      n = nc->iface->vtable->canbus_send(nc, buf, len);
 #endif
     } else {
       n = nc->iface->vtable->tcp_send(nc, buf, len);
@@ -1103,7 +1103,7 @@ struct mg_connection *mg_bind_opt(struct mg_mgr *mgr, const char *address,
     rc = nc->iface->vtable->listen_udp(nc, &nc->sa);
 #ifdef __LINUX_SOCKETCAN__
   } else if (nc->flags & MG_F_CANBUS) {
-    rc = nc->iface->vtable->listen_can(nc, &nc->sa);
+    rc = nc->iface->vtable->listen_canbus(nc, &nc->sa);
 #endif
   } else {
     rc = nc->iface->vtable->listen_tcp(nc, &nc->sa);

@@ -45,7 +45,7 @@ struct mg_iface_vtable {
   int (*listen_udp)(struct mg_connection *nc, union socket_address *sa);
 #ifdef __LINUX_SOCKETCAN__
   /* Request that a "listening" CAN socket be created. */
-  int (*listen_can)(struct mg_connection *nc, union socket_address *sa);
+  int (*listen_canbus)(struct mg_connection *nc, union socket_address *sa);
 #endif
 
   /* Request that a TCP connection is made to the specified address. */
@@ -54,21 +54,21 @@ struct mg_iface_vtable {
   void (*connect_udp)(struct mg_connection *nc);
 #ifdef __LINUX_SOCKETCAN__
   /* Open a CAN socket. Doesn't actually connect anything. */
-  void (*connect_can)(struct mg_connection *nc, const union socket_address *sa);
+  void (*connect_canbus)(struct mg_connection *nc, const union socket_address *sa);
 #endif
 
   /* Send functions for TCP and UDP. Sent data is copied before return. */
   int (*tcp_send)(struct mg_connection *nc, const void *buf, size_t len);
   int (*udp_send)(struct mg_connection *nc, const void *buf, size_t len);
 #ifdef __LINUX_SOCKETCAN__
-  int (*can_send)(struct mg_connection *nc, const void *buf, size_t len);
+  int (*canbus_send)(struct mg_connection *nc, const void *buf, size_t len);
 #endif
 
   int (*tcp_recv)(struct mg_connection *nc, void *buf, size_t len);
   int (*udp_recv)(struct mg_connection *nc, void *buf, size_t len,
                   union socket_address *sa, size_t *sa_len);
 #ifdef __LINUX_SOCKETCAN__
-  int (*can_recv)(struct mg_connection *nc, void *buf, size_t len);
+  int (*canbus_recv)(struct mg_connection *nc, void *buf, size_t len);
 #endif
 
   /* Perform interface-related connection initialization. Return 1 on ok. */

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.8
 #
 # Generate a reversible amalgamation of several C source files
 # along with their required internal headers.
