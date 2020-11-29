@@ -178,9 +178,9 @@ static int mg_socket_if_canbus_send(struct mg_connection *nc, const void *buf,
     usleep(80);
 
     if (write(nc->sock, &frame, mtu) != mtu) {
-      if (errno == ENOBUFS)
-        break;
-      rc = 0;
+      if (errno != ENOBUFS)
+        perror("can_write");
+      rc = len;
       goto error;
     }
 

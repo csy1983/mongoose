@@ -576,7 +576,7 @@ void mg_send(struct mg_connection *nc, const void *buf, int len) {
 static int mg_recv_tcp(struct mg_connection *nc, char *buf, size_t len);
 static int mg_recv_udp(struct mg_connection *nc, char *buf, size_t len);
 #ifdef __LINUX_SOCKETCAN__
-static int mg_recv_can(struct mg_connection *nc, char *buf, size_t len);
+static int mg_recv_canbus(struct mg_connection *nc, char *buf, size_t len);
 #endif
 
 static int mg_do_recv(struct mg_connection *nc) {
@@ -612,7 +612,7 @@ static int mg_do_recv(struct mg_connection *nc) {
       res = mg_recv_udp(nc, buf, len);
 #ifdef __LINUX_SOCKETCAN__
     } else if (nc->flags & MG_F_CANBUS) {
-      res = mg_recv_can(nc, buf, len);
+      res = mg_recv_canbus(nc, buf, len);
 #endif
     } else {
       res = mg_recv_tcp(nc, buf, len);
@@ -745,7 +745,7 @@ out:
 }
 
 #ifdef __LINUX_SOCKETCAN__
-static int mg_recv_can(struct mg_connection *nc, char *buf, size_t len) {
+static int mg_recv_canbus(struct mg_connection *nc, char *buf, size_t len) {
   int n = nc->iface->vtable->canbus_recv(nc, buf, len);
   DBG(("%p <- %d bytes", nc, n));
 
